@@ -179,6 +179,7 @@ auth_provider authenticator: ::SiweAuthenticator.new,
               full_screen_login: true
 
 after_initialize do
+  load File.expand_path('../lib/discourse_siwe/url_validator.rb', __FILE__)
   load File.expand_path('../lib/discourse_siwe/eth_rpc.rb', __FILE__)
   load File.expand_path('../lib/discourse_siwe/ens_resolver.rb', __FILE__)
   load File.expand_path('../lib/discourse_siwe/identity_resolver.rb', __FILE__)

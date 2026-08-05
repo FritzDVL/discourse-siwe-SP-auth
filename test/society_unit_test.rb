@@ -9,6 +9,7 @@
 $LOAD_PATH.unshift(*Dir[File.join(__dir__, '..', 'gems/*/gems/keccak-*/lib')])
 
 require 'minitest/autorun'
+require_relative '../lib/discourse_siwe/url_validator'
 require_relative '../lib/discourse_siwe/eth_rpc'
 require_relative '../lib/discourse_siwe/ens_resolver'
 require_relative '../lib/discourse_siwe/identity_resolver'
@@ -129,5 +130,52 @@ class IdentityStoreTest < Minitest::Test
     identities = DiscourseSiwe::IdentityStore.web3_identities(user)
     assert_equal '0xabc', identities[:wallet_address]
     assert_equal 'wallet', identities[:preferred_identity]
+  end
+end
+
+class UrlValidatorTest < Minitest::Test
+  def test_accepts_https_public_url
+    assert DiscourseSiwe::UrlValidator.safe?('https://example.com/avatar.png')
+  end
+
+  def test_accepts_http_public_url
+    assert DiscourseSiwe::UrlValidator.safe?('http://example.com/avatar.png')
+  end
+
+  def test_rejects_localhost
+    refute DiscourseSiwe::UrlValidator.safe?('http://localhost:3000/x')
+    refute DiscourseSiwe::UrlValidator.safe?('http://localhost/x')
+  end
+
+  def test_rejects_private_ips
+    refute DiscourseSiwe::UrlValidator.safe?('http://127.0.0.1/x')
+    refute DiscourseSiwe::UrlValidator.safe?('http://10.0.0.1/x')
+    refute DiscourseSiwe::UrlValidator.safe?('http://192.168.1.1/x')
+    refute DiscourseSiwe::UrlValidator.safe?('http://172.16.0.1/x')
+    refute DiscourseSiwe::UrlValidator.safe?('http://169.254.1.1/x')
+  end
+
+  def test_rejects_file_scheme
+    refute DiscourseSiwe::UrlValidator.safe?('file:///etc/passwd')
+  end
+
+  def test_accepts_ipfs
+    assert DiscourseSiwe::UrlValidator.safe?('ipfs://QmSomeHash')
+  end
+
+  def test_rejects_empty_ipfs
+    refute DiscourseSiwe::UrlValidator.safe?('ipfs://')
+  end
+
+  def test_normalize_rewrites_ipfs
+    assert_equal(
+      'https://ipfs.io/ipfs/QmSomeHash',
+      DiscourseSiwe::UrlValidator.normalize('ipfs://QmSomeHash')
+    )
+  end
+
+  def test_normalize_returns_nil_for_unsafe_url
+    assert_nil DiscourseSiwe::UrlValidator.normalize('file:///etc/passwd')
+    assert_nil DiscourseSiwe::UrlValidator.normalize('http://localhost/x')
   end
 end

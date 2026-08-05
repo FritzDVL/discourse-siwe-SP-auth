@@ -1,52 +1,52 @@
 # Sign-In with Ethereum for Discourse
 
 A Discourse plugin that authenticates users with their Ethereum wallet using the
-[Sign-In with Ethereum (SIWE)](https://login.xyz) standard, then lets them choose
-how their profile appears in the forum.
+[Sign-In with Ethereum (SIWE)](https://login.xyz) standard, then lets them
+choose how their profile appears in the forum.
 
-This is the maintained fork used by Society Protocol. It started from
-[`signinwithethereum/discourse-siwe-auth`](https://github.com/signinwithethereum/discourse-siwe-auth)
-and was extended with server-side ENS resolution, EIP-1271 / EIP-6492 smart
-contract wallet support, and Society Protocol profile-badge integration, plus
-a set of fixes required for current Discourse and Ruby 3.4.
+This maintained fork used by [Society Protocol](https://societyprotocol.io)
+extends the original SIWE plugin with server-side ENS resolution,
+EIP-1271 / EIP-6492 smart-contract-wallet signature verification, and
+**Society Protocol Web3 Outpost identity resolution**. A connected wallet can
+expose three possible display identities:
 
-What users experience:
+- **Wallet** — the verified Ethereum address (e.g. `0x1234…abcd`).
+- **ENS** — the address's ENS name and avatar, resolved server-side.
+- **Society Protocol** — the ERC-1155 profile badge / Web3 Outpost name and
+  avatar, resolved from the Society Protocol subgraph or directly from the
+  Ethereum mainnet contract.
 
-- Injected wallets (MetaMask, Safe, etc.) work out of the box.
-- WalletConnect / Reown works when a project ID is configured.
-- If an Ethereum RPC URL is supplied, the plugin resolves ENS names and avatars
-  server-side and suggests the ENS name as the default username for new sign-ups.
-- If Society Protocol resolution is enabled, the plugin also resolves the user's
-  Society profile badge and lets the user pick their display identity:
-  **wallet**, **ENS**, or **Society**.
+The user picks the preferred identity from **Preferences > Profile**. The
+display name and avatar are updated; the Discourse username is never rewritten.
 
-The chosen display identity updates the user's visible name and avatar in
-Discourse; the underlying username is never changed by this feature.
-
-> **About this fork.** This is a fork of
+> **About this fork.** This started from
 > [`signinwithethereum/discourse-siwe-auth`](https://github.com/signinwithethereum/discourse-siwe-auth)
-> that fixes three install-time issues blocking installation on current Discourse
-> (which now ships Ruby 3.4 inside the official `discourse/base` Docker image).
-> See [Compatibility notes](#compatibility-notes-discourse--ruby-34) below.
-> Tracking issue upstream:
+> and fixes the install-time issues that block it on current Discourse, which
+> ships Ruby 3.4 in the official `discourse/base` Docker image. See
+> [Compatibility notes](#compatibility-notes-discourse--ruby-34) below.
+> Upstream tracking issue:
 > [signinwithethereum/discourse-siwe-auth#2](https://github.com/signinwithethereum/discourse-siwe-auth/issues/2).
 
 ## Requirements
 
-- A Discourse forum that is self-hosted or hosted with a provider that supports
-  third-party plugins, like [Communiteq](https://www.communiteq.com/).
+- A self-hosted Discourse forum, or a host that allows third-party plugins
+  (e.g. [Communiteq](https://www.communiteq.com/)).
+- For ENS resolution and smart-contract-wallet verification: an Ethereum
+  JSON-RPC endpoint.
+- For WalletConnect / Reown support: a project ID from
+  [dashboard.reown.com](https://dashboard.reown.com).
 
 ## Installation
 
-Access your container's `app.yml` file:
+Edit your container's `app.yml`:
 
 ```bash
 cd /var/discourse
 nano containers/app.yml
 ```
 
-Add a `before_code` hook to install `rubyzip` and an `after_code` hook to
-clone the plugin:
+Add a `before_code` hook to install `rubyzip` and an `after_code` hook to clone
+this plugin:
 
 ```yml
 hooks:
@@ -59,164 +59,166 @@ hooks:
       cd: $home/plugins
       cmd:
         - sudo -E -u discourse git clone https://github.com/discourse/docker_manager.git
-        - sudo -E -u discourse git clone https://github.com/SocietyProtocol/discourse-siwe-auth.git # <-- added
+        - sudo -E -u discourse git clone https://github.com/SocietyProtocol/discourse-siwe.git
 ```
 
-### Why both hooks are needed
+> **Use the exact `-E -u discourse` prefix.** On Ubuntu 24.04 a plain `git clone`
+> runs as `root` and creates files the Rails build cannot read, causing a
+> confusing failure during `./launcher rebuild app`. Match the form of the
+> existing `docker_manager.git` line.
 
-**`before_code` → `gem install rubyzip`**: the `rbsecp256k1` native crypto gem
-this plugin depends on uses `rubyzip` inside its own `extconf.rb` to fetch and
-unpack the libsecp256k1 C source during build. That happens at `bundle install`
-time, *before* Discourse processes the `gem` directives in `plugin.rb`, so the
-plugin's own gem block can't supply it in time. Installing `rubyzip`
-system-wide in `before_code` guarantees it's on disk when the native
-extension's build script runs.
-
-**`after_code` → `sudo -E -u discourse git clone`**: always run the clone as
-the unprivileged `discourse` user. On Ubuntu 24.04 a plain `git clone` runs as
-`root` inside the container and produces files the Rails build cannot read,
-which surfaces as a confusing failure during `./launcher rebuild app`. The
-`-E` flag preserves the environment; `-u discourse` runs the command as the
-user the rest of the Discourse build expects to own the plugin tree. Match the
-exact form of the existing `docker_manager.git` line in your `app.yml`; if
-that line is missing the prefix, your container is using an older layout —
-add the prefix to both lines rather than dropping it from the new one.
-
-Rebuild the container:
+Then rebuild:
 
 ```bash
 cd /var/discourse
 ./launcher rebuild app
 ```
 
+### Why the `before_code` hook is required
+
+The native `rbsecp256k1` crypto gem uses `rubyzip` inside its `extconf.rb` to
+fetch and unpack the libsecp256k1 C source during build. That happens **before**
+Discourse processes the `gem` directives in `plugin.rb`, so the plugin cannot
+supply `rubyzip` in time. Installing it system-wide in `before_code` guarantees
+it is present when the native extension builds.
+
+Do **not** add `gem 'rubyzip', ...` to `plugin.rb` — that reintroduces a
+version conflict with Discourse's bundled `rubyzip 3.x`. See the
+[compatibility notes](#compatibility-notes-discourse--ruby-34) below.
+
 ## Configuration
 
-After installation, find the plugin under **Admin > Plugins** and make sure it
-is enabled:
+After installation, go to **Admin > Plugins**, enable the plugin, then open
+**Settings**:
 
 ![Installed plugins](/installed-plugins.png 'Installed plugins')
-
-Click **Settings** to configure the plugin:
-
 ![Plugin settings](/settings.png 'Plugin settings')
-
-From here you can customize the sign-in statement and optionally add a
-WalletConnect / Reown project ID. Without a project ID, only injected wallets
-(MetaMask, Safe, etc.) are available.
 
 ### Settings
 
 | Setting | Description |
 | --- | --- |
 | **Discourse siwe enabled** | Enable or disable Sign-In with Ethereum authentication. |
-| **Siwe ethereum rpc url** | _Optional._ An Ethereum JSON-RPC endpoint used for ENS name/avatar resolution and EIP-1271 signature verification (required for smart contract wallets like SAFE). A dedicated provider (Alchemy, Infura) is recommended. Example: `https://mainnet.infura.io/v3/YOUR_KEY`. |
-| **Siwe project ID** | _Optional._ A WalletConnect / Reown project ID. Without it, only injected wallets (MetaMask, Safe, etc.) are available. To enable WalletConnect, create a free project ID at [dashboard.reown.com](https://dashboard.reown.com). |
+| **Siwe ethereum rpc url** | _Optional but recommended._ Ethereum JSON-RPC endpoint used for ENS name/avatar resolution and EIP-1271 signature verification (required for smart contract wallets like SAFE). Example: `https://mainnet.infura.io/v3/YOUR_KEY`. |
+| **Siwe project ID** | _Optional._ WalletConnect / Reown project ID. Without it, only injected wallets (MetaMask, Safe, etc.) are available. |
 | **Siwe statement** | The human-readable statement shown in the SIWE message. Defaults to "Sign in with Ethereum". |
 | **Siwe society enabled** | Enable Society Protocol identity resolution and the display-identity toggle. |
 | **Siwe society subgraph url** | _Optional._ The Society Protocol subgraph endpoint. Defaults to the live mainnet endpoint; leave blank to force direct RPC resolution. |
-| **Siwe society badges contract** | Society Protocol Badges (ERC-1155) contract address. Defaults to the current mainnet proxy; update only if the contract is redeployed. |
+| **Siwe society badges contract** | Society Protocol Badges (ERC-1155) contract address. Defaults to the current mainnet proxy `0x2313C0cDdc233c92d16c2cfE17DF5fDCcE556763`. |
 | **Siwe identity resolution mode** | Preferred resolution mode: `subgraph` (default, falls back to RPC) or `rpc` (direct contract calls only). |
+
+## Society Protocol identity resolution
+
+When a user signs up or logs in, the plugin resolves any available identities and
+stores them in user custom fields:
+
+- `wallet_address` — the verified Ethereum address.
+- `ens_name` / `ens_avatar` — resolved server-side when an RPC URL is configured.
+- `society_badge_id` / `society_name` / `society_avatar` / `society_bio` —
+  resolved from the Society Protocol [Web3 Outpost](https://docs.societyprotocol.io/)
+  ERC-1155 badges contract.
+
+A default `preferred_identity` is chosen automatically: **Society** if available,
+otherwise **ENS**, otherwise **wallet**. Users with more than one identity can
+switch at any time from **Preferences > Profile**. The choice updates the visible
+name and avatar; the underlying username never changes.
+
+## Local development and wallet compatibility
+
+The plugin works on `http://localhost:3000`, but not all wallets authorize
+account access on an insecure local origin.
+
+| Wallet | `http://localhost:3000` | HTTPS / real domain |
+| --- | --- | --- |
+| MetaMask | ✅ Works | ✅ Works |
+| Brave Wallet | ❌ Refuses authorization | ✅ Works |
+| Safe / WalletConnect | Varies | ✅ Recommended |
+
+If you need to test with wallets that reject `localhost`, use a temporary public
+tunnel:
+
+```bash
+# ngrok
+ngrok http 3000
+
+# Cloudflare Tunnel
+cloudflared tunnel --url http://localhost:3000
+```
+
+Then set Discourse to match the tunnel URL in the Rails console:
+
+```ruby
+SiteSetting.force_https = true
+SiteSetting.hostname = "abc123.ngrok-free.app" # your tunnel domain
+```
+
+Browse to the HTTPS tunnel URL and sign in.
+
+## Security considerations
+
+- **RPC and subgraph endpoints are trusted inputs.** The plugin fetches data
+  from the configured `siwe_ethereum_rpc_url` and `siwe_society_subgraph_url`.
+  Point them only at providers you trust (Alchemy, Infura, the official Society
+  subgraph, or a node you control).
+- **Badge metadata and avatar URLs come from the Society Protocol contract.**
+  The plugin validates schemes (`http`, `https`, `ipfs`) and rejects private IP
+  ranges / `localhost` before fetching, but the metadata is ultimately supplied
+  by the on-chain contract. Do not change `siwe_society_badges_contract` away
+  from the official Society Protocol deployment unless you understand the
+  trust model.
+- **Email verification.** The SIWE authenticator returns `primary_email_verified?`
+  as `false`, so Discourse requires new SIWE users to verify an email address.
+  Configure SMTP in production. In local development you can manually activate
+  a test account from the Rails console.
+- **Custom fields are private.** The `web3_identities` serializer only exposes the
+  user's wallet, ENS, and Society data to that user.
+- **Usernames are stable.** The identity toggle only changes the display name
+  (`user.name`) and avatar. Mentions, quotes, and permalinks stay intact.
 
 ## Compatibility notes (Discourse + Ruby 3.4)
 
-Recent versions of Discourse ship Ruby 3.4 inside the official
-`discourse/base` Docker image and pin `rubyzip` to the 3.x line. That
-combination broke the install of upstream
-[`signinwithethereum/discourse-siwe-auth`](https://github.com/signinwithethereum/discourse-siwe-auth)
-(see issue [#2](https://github.com/signinwithethereum/discourse-siwe-auth/issues/2)).
-This fork fixes three distinct issues in `plugin.rb` so that `./launcher
-rebuild app` completes cleanly. They are documented here so the changes
-make sense to anyone reading the diff.
+Recent Discourse versions ship Ruby 3.4 in the official `discourse/base` Docker
+image and pin `rubyzip` to the 3.x line. This fork fixes three distinct issues in
+`plugin.rb` so `./launcher rebuild app` completes cleanly.
 
 ### 1. Discourse's plugin `gem` DSL needs an explicit version string
 
-Discourse's plugin loader exposes a `gem` DSL whose signature is
-`gem(name, version, opts = {})`, and it shells out to
-`gem install ... --ignore-dependencies` under the hood. The original
-plugin used short forms like `gem 'eth', require: false` (no version
-arg). On Ruby 3.x that makes RubyGems treat the keyword-arguments hash
-as the `version` argument, producing:
+The plugin DSL signature is `gem(name, version, opts = {})` and it calls
+`gem install ... --ignore-dependencies`. Passing `gem 'eth', require: false`
+(no version) makes RubyGems treat the keyword hash as the version argument:
 
 ```
 ERROR:  While executing gem ... (Gem::Requirement::BadRequirementError)
     Illformed requirement ["{"]
 ```
 
-Every gem line in `plugin.rb` therefore now carries an explicit version
-string as its second positional argument, e.g.
+Every `gem` line in `plugin.rb` now has an explicit version, e.g.
 `gem 'eth', '0.5.17', require: false`.
 
 ### 2. Every transitive dependency must be declared explicitly
 
-Because Discourse passes `--ignore-dependencies` to `gem install`,
-RubyGems will not pull in transitive deps automatically. Two consequences
-on Ruby 3.4:
+`--ignore-dependencies` means RubyGems does not auto-install transitive deps.
+On Ruby 3.4:
 
-- **`base64` is no longer a default gem** in Ruby 3.4 (it was demoted to
-  a bundled gem). `eth >= 0.5.16` is the first version that explicitly
-  depends on `base64`, so it must be listed in `plugin.rb`.
-- The `eth` / `siwe` gems also need their full subgraph listed in
-  install order: `ecdsa`, `h2c`, `bls12-381`, `http-2`, `httpx`. Same
-  reasoning applies to lower-level build deps (`pkg-config`,
-  `mini_portile2`, `ffi`, `ffi-compiler`, `konstructor`).
+- `base64` is no longer a default gem; `eth >= 0.5.16` explicitly depends on it.
+- The full dependency graph for `eth` / `siwe` is listed in install order:
+  `ecdsa`, `h2c`, `bls12-381`, `http-2`, `httpx`, plus build deps.
 
 ### 3. `rbsecp256k1`'s spurious `rubyzip ~> 2.3` runtime dep
 
-The `rbsecp256k1` gem (which `eth` uses for ECDSA signature
-recovery/verification) declares a runtime dependency on
-`rubyzip ~> 2.3` in its `.gemspec`. In reality, `rubyzip` is only used
-inside `rbsecp256k1`'s `extconf.rb` to download and unpack the
-libsecp256k1 C source archive at **build time** — it has zero runtime
-use of rubyzip. This is an upstream bug in `rbsecp256k1`'s gemspec and
-every published version since 5.0.0 carries it.
+`rbsecp256k1` declares a runtime dependency on `rubyzip ~> 2.3`, but it only
+uses `rubyzip` at build time in `extconf.rb`. Discourse's main bundle activates
+`rubyzip 3.x`, so activating `rbsecp256k1` raises a `Gem::ConflictError`.
 
-Discourse's main bundle now pins `rubyzip 3.2.2`. So when Discourse's
-plugin loader calls `Gem::Specification#activate` on `rbsecp256k1`
-during boot, RubyGems sees the active rubyzip 3.x and the
-`~> 2.3` constraint refuses to resolve, raising:
-
-```
-Gem::ConflictError: Unable to activate rbsecp256k1-6.0.0,
-because rubyzip-3.2.2 conflicts with rubyzip (~> 2.3)
-```
-
-(`--ignore-dependencies` skips install-time resolution but RubyGems
-still validates deps at activation time, so we can't simply ignore it.)
-
-The workaround in `plugin.rb` does three things, all idempotent across
-container rebuilds:
-
-1. Pre-install `rbsecp256k1` ourselves into the plugin's gem dir using
-   `Bundler.with_unbundled_env { system('gem install ...') }`.
-2. Open the installed `.gemspec` on disk and strip exactly the line
-   `s.add_runtime_dependency(%q<rubyzip>.freeze, ["~> 2.3".freeze])`
-   using a precise regex (atomic temp-file + rename so a concurrent
-   reader can never see a half-written file).
-3. Call `Gem::Specification.reset` to invalidate the cached spec, then
-   declare `gem 'rbsecp256k1', '6.0.0', require: false` normally.
-   Discourse's plugin loader sees the gem already installed, reads the
-   patched spec, and activates it without conflict. A
-   `Rails.logger.info` line is emitted when the patch is applied so the
-   shim is visible in production logs.
-
-`rubyzip` still needs to be on the system gem path for
-`rbsecp256k1`'s `extconf.rb` to succeed at build time, which is why
-the `before_code: gem install rubyzip` hook in `app.yml` is still
-required (see [Installation](#installation) above).
-
-> **Local development note:** the `before_code` hook only runs during
-> `./launcher rebuild app`. If you run Discourse locally outside the Docker
-> bootstrap (e.g. `d/rails s` in a dev setup), install rubyzip once by hand
-> (`gem install rubyzip`) so `rbsecp256k1`'s native build can find it.
-> Do **not** work around this by declaring `gem 'rubyzip', ...` in
-> `plugin.rb` — that reintroduces the activation conflict with Discourse's
-> bundled rubyzip 3.x described above.
+The workaround in `plugin.rb` pre-installs `rbsecp256k1` into the plugin gem
+ directory, strips the bogus `rubyzip` line from its installed `.gemspec`, resets
+`Gem::Specification`, then declares the gem normally. This is idempotent across
+rebuilds and logs when the patch is applied.
 
 ## Tests
 
-The plugin includes standalone minitest unit and integration scripts for ENS
-resolution and Society Protocol resolution. These run outside the full Discourse
-suite.
+The plugin includes standalone minitest unit and integration scripts. They run
+outside the full Discourse suite.
 
 ### Unit tests (no network needed)
 
@@ -257,34 +259,25 @@ for f in test/*_test.rb; do ruby "$f"; done
 ## How it works
 
 When a user clicks the Ethereum login button, the plugin opens a dedicated
-authentication page. The user connects their wallet, signs a SIWE message,
-and is authenticated via the OmniAuth strategy on the server side.
+authentication page. The user connects a wallet, signs a SIWE message, and is
+authenticated via the OmniAuth strategy on the server side.
 
 ### Sign-up path
 
-For a brand-new account, the plugin resolves available identities and stores
-them in user custom fields:
-
-- `wallet_address` — the verified Ethereum address.
-- `ens_name` / `ens_avatar` — resolved server-side if an RPC URL is configured.
-  The ENS name is suggested as the default username; the ENS avatar is fetched
-  from the ENS metadata service.
-- `society_badge_id` / `society_name` / `society_avatar` / `society_bio` —
-  resolved from Society Protocol using the configured subgraph (default) or
-  direct RPC fallback.
-
-A default `preferred_identity` is chosen automatically: Society if available,
-otherwise ENS, otherwise wallet. `DisplayNameApplier` then applies it to
-`user.name` and enqueues an avatar download if an avatar URL is present. The
-Discourse username itself is never rewritten after account creation.
+For a new account, the plugin resolves available identities and stores them in
+user custom fields. A default `preferred_identity` is chosen automatically:
+Society if available, otherwise ENS, otherwise wallet.
+`DisplayNameApplier` then applies it to `user.name` and enqueues an avatar
+download if an avatar URL is present. The Discourse username is suggested from
+ENS when available, but it is never rewritten after account creation.
 
 ### Existing-user login path
 
-For returning users, the login path does not block on network calls. It only
-cheaply refreshes ENS from the already-resolved `auth_token.info` and queues a
-throttled `RefreshSiweIdentity` background job to update Society data at most
-once every 24 hours. This keeps logins fast even if Society Protocol's
-subgraph or RPC is slow or unavailable.
+For returning users, login does not block on network calls. It refreshes ENS
+from the already-resolved `auth_token.info` and queues a throttled
+`RefreshSiweIdentity` background job to update Society data at most once every
+24 hours. This keeps logins fast even if the Society Protocol subgraph or RPC is
+slow or unavailable.
 
 ### Display-identity toggle
 
@@ -312,76 +305,60 @@ The task resolves ENS and Society identities, sets the default preference, and
 stores the result in user custom fields. Existing display names are left
 untouched unless the user toggles their preferred identity.
 
-## Troubleshooting and engineering notes
+## Troubleshooting
 
-This section captures the issues hit during the first deployment and the
-information needed to debug or resume work on another machine.
+### Brave Wallet: "The requested method and/or account has not been authorized"
 
-### Boot-time issues encountered
+Brave Wallet refuses to authorize `http://localhost` origins. Use MetaMask for
+local testing, or test through an HTTPS tunnel / real domain.
 
-1. **Missing `rubyzip` during C-extension build**
-   - Symptom: `rbsecp256k1` fails to compile, complaining that `zip` or
-     `rubyzip` is missing.
-   - Fix: the `before_code: gem install rubyzip` hook in `app.yml` handles this
-     during `./launcher rebuild app`. When running Discourse outside that flow
-     (e.g. `d/rails s` in a dev environment), install it once by hand:
-     `gem install rubyzip`.
-   - Do **not** add `gem 'rubyzip', '2.3.2'` to `plugin.rb` — Discourse's main
-     bundle activates rubyzip 3.x and that declaration would cause a
-     `Gem::ConflictError` at boot.
+### MetaMask: "… does not match current domain"
 
-2. **`uninitialized constant IdentityStore` in `plugin.rb`**
-   - Symptom: `NameError: uninitialized constant IdentityStore` during Discourse
-     boot.
-   - Fix (already applied): reference the namespaced constant:
-     `DiscourseSiwe::IdentityStore::FIELDS.each { ... }`.
+MetaMask's SIWE anti-phishing protection verifies that the message's `domain`
+and `URI` match the page origin. Browse Discourse at the exact URL it is
+configured for:
 
-3. **`DiscourseSIWE` vs `DiscourseSiwe` namespace mismatch**
-   - The repo is consistent and uses `DiscourseSiwe`. If you see this error in a
-     local copy, check that every file uses the same PascalCase (`DiscourseSiwe`)
-     and not an all-caps `SIWE` variant.
+- `http://localhost:3000` ↔ `http://localhost:3000` ✅
+- `http://127.0.0.1:3000` or `https://localhost:3000` ↔ `http://localhost:3000` ❌
 
-4. **Calling `.each` on the module instead of the constant array**
-   - Same root cause as #2: `IdentityStore::FIELDS` was missing the module
-     prefix, so Ruby resolved `IdentityStore` to the module object. Fixing the
-     namespace also fixes this.
+Common fixes:
 
-### Wallet sign-in error: "... does not match current domain"
+- Use `localhost`, not `127.0.0.1`.
+- Ensure `force_https` matches the protocol in the address bar.
+- If using a proxy or Ember CLI on a different port, align it with
+  `SiteSetting.hostname`.
 
-If the wallet (e.g. MetaMask) refuses to sign and shows a message like
-`https://localhost:3000 does not match current domain`, it is MetaMask's SIWE
-anti-phishing protection ([MetaMask issue #18191](https://github.com/MetaMask/metamask-extension/issues/18191)).
-MetaMask verifies that the EIP-4361 message's `domain` and `URI` exactly match
-the page origin that requested the signature.
+### Missing `rubyzip` during C-extension build
 
-The server builds the SIWE message from `Discourse.base_url`
-(`app/controllers/discourse_siwe/auth_controller.rb`). The mismatch means the
-browser origin does not equal Discourse's configured base URL. Common causes:
+Symptom: `rbsecp256k1` fails to compile, complaining about `zip` or `rubyzip`.
+Fix: make sure the `before_code: gem install rubyzip` hook is in `app.yml` and
+that you rebuilt the container.
 
-- Browsing `https://localhost:3000` while Discourse is configured as
-  `http://localhost:3000` (or `force_https` is off).
-- A port mismatch — e.g. an Ember CLI proxy on `:4200` while the backend base
-  URL is `:3000`.
-- Hostname mismatch — `127.0.0.1` vs `localhost`, or a tunnel/domain not listed
-  in `DISCOURSE_HOSTNAME`.
+### New SIWE users cannot post until email is verified
 
-Fix: browse Discourse at the exact URL it is configured for, or adjust
-`DISCOURSE_HOSTNAME` / `force_https` to match the real access URL.
+This is expected: SIWE does not verify an email address. Configure SMTP in
+production. In local development, activate a test account from the Rails
+console:
+
+```ruby
+user = User.find_by_username_or_email("username")
+user.email_tokens.update_all(confirmed: true)
+user.activate
+```
 
 ### Information to collect when debugging sign-in
 
-To continue debugging on a different machine, gather:
+1. The SIWE message text (copy from the wallet or `curl`
+   `"http://localhost:3000/discourse-siwe/message?eth_account=0x...&chain_id=1"`).
+   Check the `domain` and `URI:` lines.
+2. The exact URL in the browser address bar when sign-in is clicked.
+3. How Discourse is run (`d/rails s`, `./launcher`, port, HTTPS on/off) and the
+   values of `SiteSetting.hostname` and `SiteSetting.force_https`.
+4. The browser console and Network tab entries for `/discourse-siwe/message`
+   and `/auth/siwe/callback`.
+5. The relevant `log/development.log` lines around the callback.
 
-1. The SIWE message text (copy it from the wallet prompt or fetch it with
-   `curl "https://HOST/discourse-siwe/message?eth_account=0x...&chain_id=1"`).
-   Look at the `domain` and `URI:` lines.
-2. The exact URL in the browser's address bar when the sign-in button is clicked.
-3. How Discourse is being run (`d/rails s`, `./launcher`, port, HTTPS on/off) and
-   the values of `DISCOURSE_HOSTNAME` and `force_https`.
-4. The browser console output (full error) and the Network tab entries for
-   `/discourse-siwe/message` and the final OmniAuth callback POST.
-5. The relevant `log/development.log` lines around the callback — the strategy
-   logs failure reasons such as `invalid_nonce`, `expired_message`, or
-   `invalid_signature`.
+## License
 
-With #1 and #2 the exact mismatch can usually be identified immediately.
+This project is dual-licensed under the [MIT](/LICENSE-MIT) and
+[Apache-2.0](/LICENSE-APACHE) licenses.

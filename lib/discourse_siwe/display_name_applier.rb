@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require_relative 'url_validator'
+
 module DiscourseSiwe
   # Applies the user's preferred web3 identity to their Discourse profile.
   # - user.name (display name)
@@ -40,7 +42,10 @@ module DiscourseSiwe
     end
 
     def enqueue_avatar_download(user, url)
-      Jobs.enqueue(:download_avatar_from_url, user_id: user.id, url: url)
+      normalized = DiscourseSiwe::UrlValidator.normalize(url)
+      return unless normalized
+
+      Jobs.enqueue(:download_avatar_from_url, user_id: user.id, url: normalized)
     rescue StandardError => e
       if defined?(Rails) && Rails.respond_to?(:logger) && Rails.logger
         Rails.logger.warn("[discourse-siwe-auth] Failed to enqueue avatar download: #{e.message}")

@@ -2,6 +2,7 @@
 
 require 'net/http'
 require 'json'
+require_relative 'url_validator'
 
 module DiscourseSiwe
   # Resolves a Society Protocol profile badge for an Ethereum address.
@@ -148,8 +149,7 @@ module DiscourseSiwe
     end
 
     def normalize_url(url)
-      return nil if url.to_s.strip.empty?
-      url.start_with?('ipfs://') ? url.sub('ipfs://', 'https://ipfs.io/ipfs/') : url
+      DiscourseSiwe::UrlValidator.normalize(url)
     end
 
     def first_non_empty(*values)
