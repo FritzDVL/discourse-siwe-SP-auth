@@ -7,10 +7,8 @@
 ## Summary
 
 The Society Protocol identity feature is **functionally complete** and matches the
-Refined Plan with one intentional remaining item: the frontend component is
-implemented as a classic Ember component (`.js` + `.hbs`) rather than a `.gjs`
-component. This avoids plugin `.gjs` support uncertainty while still satisfying
-the feature requirement.
+Refined Plan. The preferences-profile connector is now `.gjs`, eliminating the
+last Discourse 2026 `.hbs` connector deprecation warning.
 
 In addition to the plan, this pass added:
 
@@ -18,7 +16,8 @@ In addition to the plan, this pass added:
   Society badge metadata / avatar URLs.
 - Frontend file renames to remove Discourse 2026 `.js.es6` deprecations.
 - A rewritten `README.md` that documents Society Protocol, security
-  considerations, local-dev wallet quirks, and installation.
+  considerations, local-dev wallet quirks, installation, and current working
+  status.
 
 ## Item-by-item comparison with the Refined Plan
 
@@ -83,11 +82,26 @@ In addition to the plan, this pass added:
 - Custom-field privacy → already correct (`web3_identities` owner-only).
 - Username stability → already correct (only display name/avatar changed).
 
+## Final status
+
+**2026-08-05:** The plugin is functionally complete and working in local
+development. SIWE sign-in, ENS resolution, and the Society Protocol identity
+toggle are verified end-to-end with fake data. The frontend uses `.gjs`
+connectors and modern `.js` components, so no deprecation warnings from this
+plugin remain.
+
+**Infrastructure note:** Society Protocol is migrating subgraph hosting. The
+`siwe_society_subgraph_url` default points at the current endpoint; before
+production deployment, verify the latest endpoint in
+[docs.societyprotocol.io](https://docs.societyprotocol.io/) and update the site
+setting if needed.
+
 ## Conclusion
 
 The plugin as it stands in the working tree implements the Refined Plan's
 Society Protocol identity toggle end-to-end. The connector is now `.gjs`,
 frontend `.js.es6` / `templates/components/` deprecations are resolved, and the
 README documents the feature. The remaining work is running the test suite
-inside the Discourse container and confirming the `.gjs` connector renders in
+inside the Discourse container, one positive integration test against a real
+Society badge address, and confirming the `.gjs` connector renders in
 **Preferences > Profile**.

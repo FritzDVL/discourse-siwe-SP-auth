@@ -27,6 +27,13 @@ display name and avatar are updated; the Discourse username is never rewritten.
 > Upstream tracking issue:
 > [signinwithethereum/discourse-siwe-auth#2](https://github.com/signinwithethereum/discourse-siwe-auth/issues/2).
 
+> **Current status.** The SIWE authentication, ENS resolution, and Society
+> Protocol identity toggle are implemented and verified working in local
+> development. The frontend uses modern `.gjs` connectors and `.js` components,
+> so no Discourse 2026 deprecation warnings remain from this plugin. Before
+> production deployment, run the standalone test suite and one integration test
+> against a real Society Protocol badge address.
+
 ## Requirements
 
 - A self-hosted Discourse forum, or a host that allows third-party plugins
@@ -59,7 +66,7 @@ hooks:
       cd: $home/plugins
       cmd:
         - sudo -E -u discourse git clone https://github.com/discourse/docker_manager.git
-        - sudo -E -u discourse git clone https://github.com/SocietyProtocol/discourse-siwe.git
+        - sudo -E -u discourse git clone https://github.com/SocietyProtocol/discourse-siwe-auth.git
 ```
 
 > **Use the exact `-E -u discourse` prefix.** On Ubuntu 24.04 a plain `git clone`
@@ -103,7 +110,7 @@ After installation, go to **Admin > Plugins**, enable the plugin, then open
 | **Siwe project ID** | _Optional._ WalletConnect / Reown project ID. Without it, only injected wallets (MetaMask, Safe, etc.) are available. |
 | **Siwe statement** | The human-readable statement shown in the SIWE message. Defaults to "Sign in with Ethereum". |
 | **Siwe society enabled** | Enable Society Protocol identity resolution and the display-identity toggle. |
-| **Siwe society subgraph url** | _Optional._ The Society Protocol subgraph endpoint. Defaults to the live mainnet endpoint; leave blank to force direct RPC resolution. |
+| **Siwe society subgraph url** | _Optional._ The Society Protocol subgraph endpoint. Defaults to the current live mainnet endpoint. **Society Protocol is migrating infrastructure; check [docs.societyprotocol.io](https://docs.societyprotocol.io/) for the latest endpoint before production deployment.** Leave blank to force direct RPC resolution. |
 | **Siwe society badges contract** | Society Protocol Badges (ERC-1155) contract address. Defaults to the current mainnet proxy `0x2313C0cDdc233c92d16c2cfE17DF5fDCcE556763`. |
 | **Siwe identity resolution mode** | Preferred resolution mode: `subgraph` (default, falls back to RPC) or `rpc` (direct contract calls only). |
 
@@ -214,6 +221,13 @@ The workaround in `plugin.rb` pre-installs `rbsecp256k1` into the plugin gem
  directory, strips the bogus `rubyzip` line from its installed `.gemspec`, resets
 `Gem::Specification`, then declares the gem normally. This is idempotent across
 rebuilds and logs when the patch is applied.
+
+### 4. Frontend uses modern `.gjs` connectors and `.js` components
+
+Discourse 2026 deprecates `.js.es6` files and `.hbs` connector templates. This
+plugin has been updated to use `.gjs` for the preferences-profile connector and
+`.js` for controllers/routes/components. You should not see deprecation warnings
+from this plugin in the browser console.
 
 ## Tests
 
