@@ -66,7 +66,7 @@ hooks:
 **`before_code` → `gem install rubyzip`**: the `rbsecp256k1` native crypto gem
 this plugin depends on uses `rubyzip` inside its own `extconf.rb` to fetch and
 unpack the libsecp256k1 C source during build. That happens at `bundle install`
-time, *before* Discourse processes the `gem` directives in `plugin.rb`, so the
+time, _before_ Discourse processes the `gem` directives in `plugin.rb`, so the
 plugin's own gem block can't supply it in time. Installing `rubyzip`
 system-wide in `before_code` guarantees it's on disk when the native
 extension's build script runs.
@@ -105,20 +105,20 @@ WalletConnect / Reown project ID. Without a project ID, only injected wallets
 
 ### Settings
 
-| Setting | Description |
-| --- | --- |
-| **Discourse siwe enabled** | Enable or disable Sign-In with Ethereum authentication. |
-| **Siwe ethereum rpc url** | _Optional._ An Ethereum JSON-RPC endpoint used for ENS name/avatar resolution and EIP-1271 signature verification (required for smart contract wallets like SAFE). A dedicated provider (Alchemy, Infura) is recommended. Example: `https://mainnet.infura.io/v3/YOUR_KEY`. |
-| **Siwe project ID** | _Optional._ A WalletConnect / Reown project ID. Without it, only injected wallets (MetaMask, Safe, etc.) are available. To enable WalletConnect, create a free project ID at [dashboard.reown.com](https://dashboard.reown.com). |
-| **Siwe statement** | The human-readable statement shown in the SIWE message. Defaults to "Sign in with Ethereum". |
-| **Siwe society enabled** | Enable Society Protocol identity resolution and the display-identity toggle. |
-| **Siwe society subgraph url** | _Optional._ The Society Protocol subgraph endpoint. Defaults to the live mainnet endpoint; leave blank to force direct RPC resolution. |
-| **Siwe society badges contract** | Society Protocol Badges (ERC-1155) contract address. Defaults to the current mainnet proxy; update only if the contract is redeployed. |
-| **Siwe identity resolution mode** | Preferred resolution mode: `subgraph` (default, falls back to RPC) or `rpc` (direct contract calls only). |
-| **Siwe society group mapping** | Token-gating mapping: `badge_id:group_name\|badge_id:group_name`. Example: `13:governors\|25:core-team\|28:moderators`. Leave blank to disable group sync. |
-| **Siwe voting enabled** | Enable native token governance, EIP-712 off-chain voting, and topic vote cards. |
-| **Siwe voting chain id** | EVM Chain ID used in EIP-712 governance signature hashing (default: `1` for Ethereum Mainnet). |
-| **Siwe voting shielded default** | Default secret-ballot setting for newly created proposals (tally hidden until vote closes). |
+| Setting                           | Description                                                                                                                                                                                                                                                                 |
+| --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Discourse siwe enabled**        | Enable or disable Sign-In with Ethereum authentication.                                                                                                                                                                                                                     |
+| **Siwe ethereum rpc url**         | _Optional._ An Ethereum JSON-RPC endpoint used for ENS name/avatar resolution and EIP-1271 signature verification (required for smart contract wallets like SAFE). A dedicated provider (Alchemy, Infura) is recommended. Example: `https://mainnet.infura.io/v3/YOUR_KEY`. |
+| **Siwe project ID**               | _Optional._ A WalletConnect / Reown project ID. Without it, only injected wallets (MetaMask, Safe, etc.) are available. To enable WalletConnect, create a free project ID at [dashboard.reown.com](https://dashboard.reown.com).                                            |
+| **Siwe statement**                | The human-readable statement shown in the SIWE message. Defaults to "Sign in with Ethereum".                                                                                                                                                                                |
+| **Siwe society enabled**          | Enable Society Protocol identity resolution and the display-identity toggle.                                                                                                                                                                                                |
+| **Siwe society subgraph url**     | _Optional._ The Society Protocol subgraph endpoint. Defaults to the live mainnet endpoint; leave blank to force direct RPC resolution.                                                                                                                                      |
+| **Siwe society badges contract**  | Society Protocol Badges (ERC-1155) contract address. Defaults to the current mainnet proxy; update only if the contract is redeployed.                                                                                                                                      |
+| **Siwe identity resolution mode** | Preferred resolution mode: `subgraph` (default, falls back to RPC) or `rpc` (direct contract calls only).                                                                                                                                                                   |
+| **Siwe society group mapping**    | Token-gating mapping: `badge_id:group_name\|badge_id:group_name`. Example: `13:governors\|25:core-team\|28:moderators`. Leave blank to disable group sync.                                                                                                                  |
+| **Siwe voting enabled**           | Enable native token governance, EIP-712 off-chain voting, and topic vote cards.                                                                                                                                                                                             |
+| **Siwe voting chain id**          | EVM Chain ID used in EIP-712 governance signature hashing (default: `1` for Ethereum Mainnet).                                                                                                                                                                              |
+| **Siwe voting shielded default**  | Default secret-ballot setting for newly created proposals (tally hidden until vote closes).                                                                                                                                                                                 |
 
 ## Compatibility notes (Discourse + Ruby 3.4)
 
@@ -330,19 +330,19 @@ The Society Protocol Badges contract exposes official badge IDs for Society's
 own forum roles. IDs 17–23 do not currently exist on-chain, so the registry is
 non-contiguous:
 
-| Badge ID | Name | Typical forum use |
-| --- | --- | --- |
-| 11 | SP DAO | DAO members |
-| 12 | Security Council | Security council |
-| 13 | Governor | Governors |
-| 14 | Bronze VIP | Bronze VIP tier |
-| 15 | Silver VIP | Silver VIP tier |
-| 16 | Gold VIP | Gold VIP tier |
-| 24 | Advisor | Advisors |
-| 25 | Core Team | Core team |
-| 26 | Contributor | Contributors |
-| 27 | ICO Participant | ICO participants |
-| 28 | Moderator | Moderators |
+| Badge ID | Name             | Typical forum use |
+| -------- | ---------------- | ----------------- |
+| 11       | SP DAO           | DAO members       |
+| 12       | Security Council | Security council  |
+| 13       | Governor         | Governors         |
+| 14       | Bronze VIP       | Bronze VIP tier   |
+| 15       | Silver VIP       | Silver VIP tier   |
+| 16       | Gold VIP         | Gold VIP tier     |
+| 24       | Advisor          | Advisors          |
+| 25       | Core Team        | Core team         |
+| 26       | Contributor      | Contributors      |
+| 27       | ICO Participant  | ICO participants  |
+| 28       | Moderator        | Moderators        |
 
 The mechanism is generic: community badges (issued by external communities
 through the Web3 Outpost) also appear in `user.badges` and can be mapped the
@@ -388,11 +388,12 @@ curl -X POST https://forum.yourcommunity.com/sp-voting/proposal \
   }'
 ```
 
-*Note: If `snapshot_block` is omitted, the plugin automatically queries Ethereum RPC and records the current block height.*
+_Note: If `snapshot_block` is omitted, the plugin automatically queries Ethereum RPC and records the current block height._
 
 #### Frontend Topic Widget
 
 When a Discourse topic has an associated governance proposal, the `sp-vote-widget` component mounts directly above the discussion thread (`topic-above-posts` outlet):
+
 - Displays the proposal status, snapshot block height, and active/shielded badge.
 - Provides interactive percentage input sliders for **Weighted Voting** with real-time remaining-percentage tracking.
 - Initiates wallet signature requests directly via Viem and Wagmi.

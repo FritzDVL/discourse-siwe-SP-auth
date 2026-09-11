@@ -10,6 +10,12 @@ enabled_site_setting :discourse_siwe_enabled
 register_svg_icon 'fab-ethereum'
 register_asset 'stylesheets/discourse-siwe-auth.scss'
 
+# Discourse installs plugin gems with --ignore-dependencies. Declare keccak
+# first so siwe-rb can activate its sole external runtime dependency.
+gem 'keccak', '1.3.3', require: false
+gem 'siwe-rb', '0.3.0', require: false
+
+# Load after the gem declarations so require 'siwe' resolves.
 %w[
   ../lib/omniauth/strategies/siwe.rb
 ].each { |path| load File.expand_path(path, __FILE__) }
