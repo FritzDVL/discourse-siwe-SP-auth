@@ -221,6 +221,27 @@ The plugin includes standalone minitest unit and integration scripts for ENS
 resolution and Society Protocol resolution. These run outside the full Discourse
 suite.
 
+### Frontend dependencies and bundle
+
+The widget uses the Vue packages from Layers (`components`, `components.evm`,
+and `styles`), with wallet dependencies aligned to `layers.evm` 4.0.3. Discourse
+is not a Nuxt app, so the Nuxt layer itself is not installed. Wallet selection
+and connection stay in the shared `EvmConnect` component; the local adapter
+supplies Discourse's message endpoint and authentication callback.
+
+Use Node.js 24 and pnpm to install the pinned dependencies, apply the Discourse
+compatibility patch, run regression tests, and rebuild the checked-in bundle:
+
+```bash
+cd ui
+pnpm install --frozen-lockfile
+pnpm test
+pnpm build
+```
+
+The build rejects missing optional wallet SDK dependencies. The parser patch
+and its rationale are documented in `ui/patches/README.md`.
+
 ### Unit tests (no network needed)
 
 ```bash
