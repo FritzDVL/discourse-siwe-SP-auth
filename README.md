@@ -523,6 +523,14 @@ To continue debugging on a different machine, gather:
 
 With #1 and #2 the exact mismatch can usually be identified immediately.
 
+## Upstream Compatibility & Updates
+
+- **v1.3.4 Alignment (September 2026):**
+  - Ported upstream fixes from `signinwithethereum/discourse-siwe-auth` v1.3.4.
+  - Replaced `rbsecp256k1` / `eth` dependency chain with `siwe-rb 0.3.0` + `keccak`.
+  - Fixes Docker production rebuild failures (`./launcher rebuild app`) and gem version conflicts on Discourse base images.
+  - Included upstream MetaMask reconnection and Ember compatibility patches while preserving custom Society Protocol Shielded Voting features.
+
 ## License
 
 MIT / Apache-2.0, same as upstream. See `LICENSE-MIT` and `LICENSE-APACHE`.
