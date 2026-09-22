@@ -1,32 +1,15 @@
-# Web3 Outpost sign-in for Discourse
+# Society Protocol Web3 Outpost Suite for Discourse
 
-A Discourse plugin by [Society Protocol](https://societyprotocol.io/) that lets
-forum members sign in with their Ethereum wallet and show up in the community
-with their **web3 identity** — their wallet address, their ENS name, or their
-Society Protocol outpost profile.
+A comprehensive Web3 forum suite by [Society Protocol](https://societyprotocol.io/) that transforms Discourse into a decentralized community outpost. It combines **Sign-In with Ethereum (SIWE)**, **on-chain identity resolution** (ENS and ERC-1155 profile badges), **badge-based token gating**, and **native off-chain token governance & weighted voting**—with zero external SaaS fees or microservice dependencies.
 
 ## What this plugin is
 
-This project started as a fork of
-[`signinwithethereum/discourse-siwe-auth`](https://github.com/signinwithethereum/discourse-siwe-auth),
-the reference [Sign-In with Ethereum (SIWE)](https://login.xyz) plugin for
-Discourse. We turned it into Society Protocol's own plugin by extending it in
-three directions:
+Originally starting from [`signinwithethereum/discourse-siwe-auth`](https://github.com/signinwithethereum/discourse-siwe-auth), Society Protocol has evolved this project into a complete, modular **Web3 Outpost Suite** structured around four pillars:
 
-1. **Web3 identities, not just authentication.** Beyond logging users in, the
-   plugin resolves every identity attached to the signing wallet — ENS name and
-   avatar (resolved server-side) and the wallet's Society Protocol outpost
-   profile (name, bio, avatar, badge) — and stores them on the Discourse
-   account.
-2. **A display-identity toggle.** Users choose, from **Preferences > Profile**,
-   which identity represents them in the forum: wallet, ENS, or Society
-   Protocol outpost. The choice updates their visible name and avatar across
-   the site. The selector is shown at the top of the profile section.
-3. **Production-grade robustness.** Smart contract wallet support
-   (EIP-1271 / EIP-6492, e.g. Safe and Coinbase Smart Wallet), a throttled
-   background refresh so logins never block on external APIs, a backfill rake
-   task for existing users, and fixes for installing on current Discourse
-   with Ruby 3.4 (see [Compatibility notes](#compatibility-notes-discourse--ruby-34)).
+1. **Web3 Authentication (SIWE):** Gasless wallet sign-in supporting both standard EOA wallets (MetaMask, Rainbow, Coinbase) and smart contract accounts (Safe via EIP-1271, undeployed smart accounts via EIP-6492).
+2. **Multi-Identity Resolution & Display Selector:** Resolves ENS domains/avatars and Society Protocol ERC-1155 outpost profile badges from The Graph and RPC. Users can switch their visible forum identity (Wallet, ENS, or Society Outpost) from **Preferences > Profile**.
+3. **Badge Token Gating:** Synchronizes held ERC-1155 identity badges with Discourse groups (e.g. Governors, Core Team, Moderators), granting exclusive category permissions and badges automatically.
+4. **Native Token Governance & Weighted Voting:** Embeds Snapshot v1 architecture natively inside Discourse. Community members sign off-chain EIP-712 ballots weighted by their historical badge holdings at a frozen EVM block height, with secret-ballot **Shielded Voting**, **Weighted Voting** for competitions, and **Safe Multisig execution payloads**.
 
 What users experience:
 
@@ -133,6 +116,9 @@ WalletConnect / Reown project ID. Without a project ID, only injected wallets
 | **Siwe society badges contract** | Society Protocol Badges (ERC-1155) contract address. Defaults to the current mainnet proxy; update only if the contract is redeployed. |
 | **Siwe identity resolution mode** | Preferred resolution mode: `subgraph` (default, falls back to RPC) or `rpc` (direct contract calls only). |
 | **Siwe society group mapping** | Token-gating mapping: `badge_id:group_name\|badge_id:group_name`. Example: `13:governors\|25:core-team\|28:moderators`. Leave blank to disable group sync. |
+| **Siwe voting enabled** | Enable native token governance, EIP-712 off-chain voting, and topic vote cards. |
+| **Siwe voting chain id** | EVM Chain ID used in EIP-712 governance signature hashing (default: `1` for Ethereum Mainnet). |
+| **Siwe voting shielded default** | Default secret-ballot setting for newly created proposals (tally hidden until vote closes). |
 
 ## Compatibility notes (Discourse + Ruby 3.4)
 
@@ -240,6 +226,7 @@ suite.
 ```bash
 ruby test/ens_unit_test.rb
 ruby test/society_unit_test.rb
+ruby test/voting_unit_test.rb
 ```
 
 ### Integration tests (require an Ethereum RPC endpoint)
@@ -361,6 +348,55 @@ The mechanism is generic: community badges (issued by external communities
 through the Web3 Outpost) also appear in `user.badges` and can be mapped the
 same way. A future phase will add a no-code admin UI so external communities can
 gate their own forums on any token contract without editing code.
+
+### Native Token Governance & Weighted Voting
+
+The plugin embeds an off-chain signaling and token-weighted voting engine natively inside Discourse. Operating on the **Snapshot v1 architectural paradigm**, it provides decentralized governance without requiring third-party SaaS subscriptions ($6,000/yr), Snapshot Hub servers, or external sequencers.
+
+#### Core Capabilities
+
+1. **Gasless EIP-712 Ballots:**
+   Voters cast ballots by signing structured EIP-712 messages using their connected wallet (MetaMask, WalletConnect, or Safe multisig). Voting costs **$0 in gas**. Signatures are validated server-side for both EOAs and smart contract wallets (EIP-1271 / EIP-6492).
+2. **Historical Snapshot Block Height:**
+   When a proposal is initialized, the system automatically calls Ethereum RPC (`EthRpc.eth_block_number`) to lock the exact EVM block height. When votes are cast, voter badge balances are queried via `web3-app-subgraph` at that exact block number, preventing flash loans or post-announcement badge acquisition from manipulating results.
+3. **Advanced Tally Engines:**
+   - **Weighted Voting (Competitions & Grants):** Voters can split their voting power across multiple options (e.g., 50% to Project Alpha, 30% to Project Beta, 20% to Project Gamma). Proportional power is calculated dynamically.
+   - **Single Choice:** Standard single-option voting where 100% of voting power goes to one choice.
+   - **Quadratic Voting:** Mitigates whale dominance by scaling effective power quadratically ($\text{Power} = \sqrt{\text{Allocated Badges}}$).
+   - **Approval Voting:** Voters can approve any number of acceptable candidates with their full voting weight.
+4. **Shielded Voting (Secret Ballots):**
+   Active proposals can be configured as **Shielded**. While voting is open (`Time.now.utc < ends_at`), API responses mask individual choices and voting tallies, showing only total voter count. Once the deadline expires or the proposal is closed, final certified tallies and percentage bars are unmasked automatically.
+5. **Safe Multisig Execution Payloads:**
+   Proposal creators can attach an optional execution payload (`to`, `value`, `data`, `operation`). When a proposal passes, a formatted Gnosis Safe batch transaction payload is generated, allowing DAO signers to execute on-chain outcomes directly via Safe {Wallet} App or `web3-app-contracts`.
+
+#### Creating Governance Proposals (API)
+
+Staff and administrators create proposals for any Discourse topic via `POST /sp-voting/proposal`:
+
+```bash
+curl -X POST https://forum.yourcommunity.com/sp-voting/proposal \
+  -H "Content-Type: application/json" \
+  -H "Api-Key: YOUR_DISCOURSE_API_KEY" \
+  -H "Api-Username: admin_username" \
+  -d '{
+    "topic_id": 42,
+    "title": "Community Grant Competition #1",
+    "options": ["Project Alpha", "Project Beta", "Project Gamma"],
+    "ends_at": "2026-10-01T18:00:00Z",
+    "voting_type": "weighted",
+    "shielded": true
+  }'
+```
+
+*Note: If `snapshot_block` is omitted, the plugin automatically queries Ethereum RPC and records the current block height.*
+
+#### Frontend Topic Widget
+
+When a Discourse topic has an associated governance proposal, the `sp-vote-widget` component mounts directly above the discussion thread (`topic-above-posts` outlet):
+- Displays the proposal status, snapshot block height, and active/shielded badge.
+- Provides interactive percentage input sliders for **Weighted Voting** with real-time remaining-percentage tracking.
+- Initiates wallet signature requests directly via Viem and Wagmi.
+- Displays unmasked certified results and Safe execution payloads when voting concludes.
 
 ### Backfilling existing users
 
