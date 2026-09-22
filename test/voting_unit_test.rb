@@ -2,6 +2,7 @@
 # frozen_string_literal: true
 
 require 'minitest/autorun'
+require 'json'
 
 $LOAD_PATH.unshift(*Dir[File.join(__dir__, '..', 'gems/*/gems/keccak-*/lib')])
 
@@ -47,50 +48,9 @@ class VotingStrategyTest < Minitest::Test
 end
 
 class ProposalTallyLogicTest < Minitest::Test
-  # Mock Vote Struct
   VoteMock = Struct.new(:choice, :voting_power)
 
-  def tally(options, votes)
-    tally_data = options.each_with_index.map do |opt, idx|
-      {
-        index: idx,
-        label: opt.to_s,
-        vote_count: 0,
-        voting_power: 0.0,
-        percentage: 0.0,
-      }
-    end
-
-    total_power = 0.0
-
-    votes.each do |vote|
-      choices = vote.choice.is_a?(Array) ? vote.choice : [vote.choice]
-      weight = vote.voting_power.to_f
-      total_power += weight
-
-      choices.each do |c|
-        c_idx = c.to_i
-        if c_idx >= 0 && c_idx < tally_data.length
-          tally_data[c_idx][:vote_count] += 1
-          tally_data[c_idx][:voting_power] += weight
-        end
-      end
-    end
-
-    if total_power > 0
-      tally_data.each do |item|
-        item[:percentage] = ((item[:voting_power] / total_power) * 100.0).round(2)
-      end
-    end
-
-    {
-      total_votes: votes.size,
-      total_power: total_power,
-      tallies: tally_data,
-    }
-  end
-
-  def test_tally_calculation
+  def test_single_choice_tally
     options = ['Approve', 'Reject', 'Abstain']
     votes = [
       VoteMock.new([0], 10.0),
@@ -98,7 +58,7 @@ class ProposalTallyLogicTest < Minitest::Test
       VoteMock.new([1], 5.0),
     ]
 
-    result = tally(options, votes)
+    result = DiscourseSiwe::VotingStrategy.tally(options, votes, :single_choice)
 
     assert_equal 3, result[:total_votes]
     assert_equal 20.0, result[:total_power]
@@ -112,18 +72,76 @@ class ProposalTallyLogicTest < Minitest::Test
     assert_equal 1, result[:tallies][1][:vote_count]
     assert_equal 5.0, result[:tallies][1][:voting_power]
     assert_equal 25.0, result[:tallies][1][:percentage]
+  end
 
-    # Option 2 (Abstain): 0 power
-    assert_equal 0, result[:tallies][2][:vote_count]
-    assert_equal 0.0, result[:tallies][2][:voting_power]
-    assert_equal 0.0, result[:tallies][2][:percentage]
+  def test_weighted_voting_competition_distribution
+    options = ['Project Alpha', 'Project Beta', 'Project Gamma']
+    # Voter 1 has 10 power and splits 50% to Alpha, 30% to Beta, 20% to Gamma
+    # Voter 2 has 20 power and gives 100% to Alpha
+    votes = [
+      VoteMock.new({ '0' => 50, '1' => 30, '2' => 20 }, 10.0),
+      VoteMock.new({ '0' => 100 }, 20.0),
+    ]
+
+    result = DiscourseSiwe::VotingStrategy.tally_weighted(options, votes)
+
+    assert_equal 2, result[:total_votes]
+    assert_equal 30.0, result[:total_power]
+
+    # Alpha: 5 (from Voter 1) + 20 (from Voter 2) = 25 power
+    # 25 / 30 = 83.33%
+    assert_equal 2, result[:tallies][0][:vote_count]
+    assert_equal 25.0, result[:tallies][0][:voting_power]
+    assert_equal 83.33, result[:tallies][0][:percentage]
+
+    # Beta: 3 (from Voter 1) = 3 power (10%)
+    assert_equal 1, result[:tallies][1][:vote_count]
+    assert_equal 3.0, result[:tallies][1][:voting_power]
+    assert_equal 10.0, result[:tallies][1][:percentage]
+
+    # Gamma: 2 (from Voter 1) = 2 power (6.67%)
+    assert_equal 1, result[:tallies][2][:vote_count]
+    assert_equal 2.0, result[:tallies][2][:voting_power]
+    assert_equal 6.67, result[:tallies][2][:percentage]
+  end
+
+  def test_quadratic_voting_tally
+    options = ['Option A', 'Option B']
+    # Voter 1 has 100 power -> sqrt(100) = 10
+    # Voter 2 has 16 power -> sqrt(16) = 4
+    votes = [
+      VoteMock.new([0], 100.0),
+      VoteMock.new([1], 16.0),
+    ]
+
+    result = DiscourseSiwe::VotingStrategy.tally_quadratic(options, votes)
+
+    assert_equal 2, result[:total_votes]
+    assert_equal 14.0, result[:total_power]
+    assert_equal 10.0, result[:tallies][0][:voting_power]
+    assert_equal 71.43, result[:tallies][0][:percentage]
+    assert_equal 4.0, result[:tallies][1][:voting_power]
+    assert_equal 28.57, result[:tallies][1][:percentage]
+  end
+
+  def test_approval_voting_tally
+    options = ['Idea 1', 'Idea 2', 'Idea 3']
+    # Voter 1 approves 0 and 2 with 10 power
+    votes = [
+      VoteMock.new([0, 2], 10.0),
+    ]
+
+    result = DiscourseSiwe::VotingStrategy.tally_approval(options, votes)
+
+    assert_equal 10.0, result[:tallies][0][:voting_power]
+    assert_equal 0.0, result[:tallies][1][:voting_power]
+    assert_equal 10.0, result[:tallies][2][:voting_power]
   end
 
   def test_shielded_tally_masked_when_active
     options = ['Option A', 'Option B']
     votes = [VoteMock.new([0], 10.0)]
 
-    # Mocking shielded proposal behavior
     proposal = Struct.new(:options, :shielded?, :active?, :sp_votes) do
       def tally_results(mask_shielded: true)
         if mask_shielded && shielded? && active?
@@ -146,7 +164,7 @@ class ProposalTallyLogicTest < Minitest::Test
   end
 end
 
-# If Digest::Keccak is not installed on system ruby, provide a mock for EthRpc.keccak256
+# Mock EthRpc keccak if Digest::Keccak not loaded
 unless defined?(Digest::Keccak)
   module Digest
     class Keccak
@@ -162,10 +180,17 @@ require_relative '../lib/discourse_siwe/eth_rpc'
 require_relative '../lib/discourse_siwe/eip712'
 
 class Eip712HashingTest < Minitest::Test
-
   def test_hash_vote_deterministic
     h1 = DiscourseSiwe::Eip712.hash_vote(123, [0], 1700000000, 1)
     h2 = DiscourseSiwe::Eip712.hash_vote(123, [0], 1700000000, 1)
+    assert_equal h1, h2
+    assert_equal 32, h1.bytesize
+  end
+
+  def test_hash_vote_weighted_string_json
+    choice_json = '{"0":50,"1":50}'
+    h1 = DiscourseSiwe::Eip712.hash_vote(123, choice_json, 1700000000, 1)
+    h2 = DiscourseSiwe::Eip712.hash_vote(123, { '0' => 50, '1' => 50 }, 1700000000, 1)
     assert_equal h1, h2
     assert_equal 32, h1.bytesize
   end

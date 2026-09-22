@@ -1,7 +1,6 @@
 import Component from '@ember/component'
 import { computed } from '@ember/object'
 import { ajax } from 'discourse/lib/ajax'
-import { popupAjaxError } from 'discourse/lib/ajax-error'
 import loadScript from 'discourse/lib/load-script'
 
 export default Component.extend({
@@ -15,11 +14,33 @@ export default Component.extend({
   userPower: 0,
   userWallet: null,
   selectedChoice: null,
+  selectedChoices: null,
+  weights: null,
+  totalAllocatedWeight: 0,
   errorMessage: null,
   successMessage: null,
+  copiedSafePayload: false,
+
+  init() {
+    this._super(...arguments)
+    this.set('selectedChoices', [])
+    this.set('weights', {})
+  },
 
   hasVoted: computed('userVote', function () {
     return !!this.userVote
+  }),
+
+  isWeighted: computed('proposal.voting_type', function () {
+    return this.proposal && this.proposal.voting_type === 'weighted'
+  }),
+
+  isApproval: computed('proposal.voting_type', function () {
+    return this.proposal && this.proposal.voting_type === 'approval'
+  }),
+
+  remainingWeight: computed('totalAllocatedWeight', function () {
+    return Math.max(0, 100 - this.totalAllocatedWeight)
   }),
 
   formattedEndsAt: computed('proposal.ends_at', function () {
@@ -38,15 +59,32 @@ export default Component.extend({
     'submitting',
     'userPower',
     'userWallet',
+    'isWeighted',
+    'isApproval',
+    'selectedChoice',
+    'selectedChoices.length',
+    'totalAllocatedWeight',
     function () {
-      return (
-        this.proposal &&
-        this.proposal.is_active &&
-        !this.hasVoted &&
-        !this.submitting &&
-        this.userWallet &&
-        this.userPower > 0
-      )
+      if (
+        !this.proposal ||
+        !this.proposal.is_active ||
+        this.hasVoted ||
+        this.submitting ||
+        !this.userWallet ||
+        this.userPower <= 0
+      ) {
+        return false
+      }
+
+      if (this.isWeighted) {
+        return this.totalAllocatedWeight > 0
+      }
+
+      if (this.isApproval) {
+        return this.selectedChoices && this.selectedChoices.length > 0
+      }
+
+      return this.selectedChoice !== null
     },
   ),
 
@@ -66,7 +104,6 @@ export default Component.extend({
     }
 
     try {
-      // Ensure web3 signer bundle is loaded
       if (!window.SiweAuth) {
         await loadScript(
           '/plugins/discourse-siwe-auth/javascripts/siwe.iife.js',
@@ -83,8 +120,14 @@ export default Component.extend({
         this.set('userPower', res.user_power || 0)
         this.set('userWallet', res.user_wallet)
 
-        if (res.user_vote && Array.isArray(res.user_vote.choice)) {
-          this.set('selectedChoice', res.user_vote.choice[0])
+        // Initialize user weights or choice selection
+        if (res.user_vote && res.user_vote.choice) {
+          if (typeof res.user_vote.choice === 'object' && !Array.isArray(res.user_vote.choice)) {
+            this.set('weights', res.user_vote.choice)
+          } else if (Array.isArray(res.user_vote.choice)) {
+            this.set('selectedChoice', res.user_vote.choice[0])
+            this.set('selectedChoices', res.user_vote.choice)
+          }
         }
       }
     } catch (err) {
@@ -101,12 +144,54 @@ export default Component.extend({
   actions: {
     selectOption(idx) {
       if (this.hasVoted || !this.proposal.is_active) return
-      this.set('selectedChoice', idx)
+
+      if (this.isApproval) {
+        const choices = (this.selectedChoices || []).slice()
+        const found = choices.indexOf(idx)
+        if (found > -1) {
+          choices.splice(found, 1)
+        } else {
+          choices.push(idx)
+        }
+        this.set('selectedChoices', choices)
+      } else {
+        this.set('selectedChoice', idx)
+      }
       this.set('errorMessage', null)
     },
 
+    updateOptionWeight(idx, event) {
+      if (this.hasVoted || !this.proposal.is_active) return
+
+      const val = Math.max(0, Math.min(100, parseFloat(event.target.value) || 0))
+      const currentWeights = Object.assign({}, this.weights || {})
+      currentWeights[idx.toString()] = val
+
+      let sum = 0
+      for (const k in currentWeights) {
+        sum += currentWeights[k]
+      }
+
+      this.set('weights', currentWeights)
+      this.set('totalAllocatedWeight', sum)
+      this.set('errorMessage', null)
+    },
+
+    copySafePayload() {
+      if (!this.proposal || !this.proposal.safe_payload) return
+      const json = JSON.stringify(this.proposal.safe_payload, null, 2)
+      navigator.clipboard.writeText(json).then(() => {
+        this.set('copiedSafePayload', true)
+        setTimeout(() => {
+          if (!this.isDestroying && !this.isDestroyed) {
+            this.set('copiedSafePayload', false)
+          }
+        }, 2500)
+      })
+    },
+
     async castVote() {
-      if (!this.canVote || this.selectedChoice === null) return
+      if (!this.canVote) return
 
       this.set('submitting', true)
       this.set('errorMessage', null)
@@ -125,7 +210,6 @@ export default Component.extend({
           parseInt(this.siteSettings.siwe_voting_chain_id, 10) || 1
         const projectId = this.siteSettings.siwe_project_id || ''
 
-        // Warn if connected wallet doesn't match Discourse SIWE account
         const activeWallet =
           window.SiweAuth.getConnectedAddress &&
           window.SiweAuth.getConnectedAddress(projectId)
@@ -141,9 +225,18 @@ export default Component.extend({
           )
         }
 
+        let choiceToSign
+        if (this.isWeighted) {
+          choiceToSign = this.weights
+        } else if (this.isApproval) {
+          choiceToSign = this.selectedChoices
+        } else {
+          choiceToSign = [this.selectedChoice]
+        }
+
         const { signature } = await window.SiweAuth.signVotePayload({
           topicId,
-          choice: [this.selectedChoice],
+          choice: choiceToSign,
           timestamp,
           chainId,
           walletConnectProjectId: projectId,
@@ -157,7 +250,7 @@ export default Component.extend({
           type: 'POST',
           data: {
             topic_id: topicId,
-            choice: [this.selectedChoice],
+            choice: choiceToSign,
             signature,
             timestamp,
           },

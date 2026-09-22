@@ -54,9 +54,12 @@ module DiscourseSiwe
           snapshot_block: proposal.snapshot_block,
           ends_at: proposal.ends_at.iso8601,
           status: proposal.status,
+          voting_type: proposal.respond_to?(:voting_type) ? (proposal.voting_type || 'single_choice') : 'single_choice',
+          quorum: proposal.respond_to?(:quorum) ? proposal.quorum.to_f : 0.0,
           is_active: proposal.active?,
           shielded: proposal.respond_to?(:shielded) ? proposal.shielded : false,
           strategy_rules: proposal.strategy_rules,
+          safe_payload: proposal.safe_transaction_payload,
         },
         tally: tally,
         user_vote: user_vote,
@@ -75,6 +78,9 @@ module DiscourseSiwe
       strategy_rules = params[:strategy_rules]
       snapshot_block = params[:snapshot_block].to_i
       shielded_param = params[:shielded]
+      voting_type_param = params[:voting_type]
+      quorum_param = params[:quorum].to_f
+      execution_payload = params[:execution_payload]
 
       if topic_id <= 0
         return render json: { error: 'Invalid or missing topic_id' }, status: 400
@@ -100,6 +106,13 @@ module DiscourseSiwe
 
       shielded = shielded_param.nil? ? SiteSetting.siwe_voting_shielded_default : (shielded_param == true || shielded_param == 'true')
 
+      voting_type = case voting_type_param.to_s.downcase
+                    when '1', 'weighted' then :weighted
+                    when '2', 'quadratic' then :quadratic
+                    when '3', 'approval' then :approval
+                    else :single_choice
+                    end
+
       proposal = SpProposal.find_or_initialize_by(topic_id: topic_id)
       proposal.assign_attributes(
         title: title,
@@ -110,6 +123,10 @@ module DiscourseSiwe
         shielded: shielded,
         status: :open,
       )
+
+      proposal.voting_type = voting_type if proposal.respond_to?(:voting_type=)
+      proposal.quorum = quorum_param if proposal.respond_to?(:quorum=) && quorum_param > 0
+      proposal.execution_payload = execution_payload if proposal.respond_to?(:execution_payload=) && execution_payload.is_a?(Hash)
 
       if proposal.save
         render json: { success: true, proposal: proposal }
@@ -137,20 +154,12 @@ module DiscourseSiwe
         return render json: { error: 'Voting is closed for this proposal' }, status: 400
       end
 
-      choice_param = params[:choice]
-      choice_array = case choice_param
-                     when Array then choice_param.map(&:to_i)
-                     when Integer, String then [choice_param.to_i]
-                     else nil
-                     end
-
-      if choice_array.blank?
-        return render json: { error: 'No option selected' }, status: 400
-      end
-
       max_option_idx = proposal.options.length - 1
-      if choice_array.any? { |c| c < 0 || c > max_option_idx }
-        return render json: { error: 'Invalid option selected' }, status: 400
+      choice_param = params[:choice]
+
+      parsed_choice = normalize_choice(choice_param, proposal, max_option_idx)
+      if parsed_choice.nil?
+        return render json: { error: 'Invalid option selection or weight distribution' }, status: 400
       end
 
       signature = params[:signature].to_s.presence
@@ -172,7 +181,7 @@ module DiscourseSiwe
       valid_signature = DiscourseSiwe::Eip712.verify_vote(
         voter_wallet,
         proposal.topic_id,
-        choice_array,
+        parsed_choice,
         timestamp,
         signature,
         chain_id
@@ -206,7 +215,7 @@ module DiscourseSiwe
       )
 
       vote.assign_attributes(
-        choice: choice_array,
+        choice: parsed_choice,
         voting_power: voting_power,
         signature: signature,
         signed_at: timestamp,
@@ -216,7 +225,7 @@ module DiscourseSiwe
         render json: {
           success: true,
           voting_power: voting_power,
-          choice: choice_array,
+          choice: parsed_choice,
           tally: proposal.tally_results,
         }
       else
@@ -235,6 +244,56 @@ module DiscourseSiwe
       Time.parse(raw.to_s).utc
     rescue ArgumentError
       nil
+    end
+
+    def normalize_choice(choice_param, proposal, max_option_idx)
+      is_weighted = proposal.respond_to?(:weighted?) && proposal.weighted?
+
+      if is_weighted
+        raw_hash = case choice_param
+                   when Hash then choice_param
+                   when String
+                     begin
+                       JSON.parse(choice_param)
+                     rescue StandardError
+                       nil
+                     end
+                   else nil
+                   end
+
+        return nil unless raw_hash.is_a?(Hash) && !raw_hash.empty?
+
+        weights = {}
+        raw_hash.each do |k, v|
+          idx = k.to_i
+          val = v.to_f
+          return nil if idx < 0 || idx > max_option_idx || val < 0
+          weights[idx.to_s] = val if val > 0
+        end
+
+        return nil if weights.empty? || weights.values.sum <= 0
+        weights
+      else
+        choice_array = case choice_param
+                       when Array then choice_param.map(&:to_i)
+                       when Integer, String
+                         if choice_param.is_a?(String) && choice_param.start_with?('[')
+                           JSON.parse(choice_param).map(&:to_i) rescue [choice_param.to_i]
+                         else
+                           [choice_param.to_i]
+                         end
+                       else nil
+                       end
+
+        return nil if choice_array.blank?
+        return nil if choice_array.any? { |c| c < 0 || c > max_option_idx }
+
+        if proposal.respond_to?(:single_choice?) && proposal.single_choice?
+          [choice_array.first]
+        else
+          choice_array.uniq
+        end
+      end
     end
   end
 end

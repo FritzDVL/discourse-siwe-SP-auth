@@ -21,6 +21,12 @@
               Shielded Ballot
             </span>
           {{/if}}
+          {{#if this.isWeighted}}
+            <span class='sp-vote-badge weighted'>
+              {{d-icon 'balance-scale'}}
+              Weighted Voting
+            </span>
+          {{/if}}
         </div>
         <span class='sp-vote-meta'>
           Snapshot Block:
@@ -38,6 +44,15 @@
           voting ends on
           {{this.formattedEndsAt}}.</span>
       </div>
+    {{/if}}
+
+    {{#if this.isWeighted}}
+      {{#unless this.hasVoted}}
+        <div class='sp-vote-alert info'>
+          {{d-icon 'info-circle'}}
+          <span><strong>Weighted Allocation:</strong> Distribute your voting power across competition options. Allocated: <strong>{{this.totalAllocatedWeight}}%</strong> (Remaining: <strong>{{this.remainingWeight}}%</strong>).</span>
+        </div>
+      {{/unless}}
     {{/if}}
 
     {{#if this.errorMessage}}
@@ -63,14 +78,37 @@
           {{action 'selectOption' opt.index}}
         >
           <div class='sp-vote-option-content'>
-            <div class='sp-vote-option-radio'>
-              <input
-                type='radio'
-                name='sp-vote-choice'
-                checked={{eq this.selectedChoice opt.index}}
-                disabled={{or this.hasVoted (not this.proposal.is_active)}}
-              />
-            </div>
+            {{#if this.isWeighted}}
+              {{#unless this.hasVoted}}
+                <div class='sp-vote-weight-input' onclick={{action (mut opt.dummy) bubbles=false}}>
+                  <input
+                    type='number'
+                    min='0'
+                    max='100'
+                    placeholder='0%'
+                    disabled={{not this.proposal.is_active}}
+                    oninput={{action 'updateOptionWeight' opt.index}}
+                  />
+                </div>
+              {{/unless}}
+            {{else if this.isApproval}}
+              <div class='sp-vote-option-radio'>
+                <input
+                  type='checkbox'
+                  disabled={{or this.hasVoted (not this.proposal.is_active)}}
+                />
+              </div>
+            {{else}}
+              <div class='sp-vote-option-radio'>
+                <input
+                  type='radio'
+                  name='sp-vote-choice'
+                  checked={{eq this.selectedChoice opt.index}}
+                  disabled={{or this.hasVoted (not this.proposal.is_active)}}
+                />
+              </div>
+            {{/if}}
+
             <div class='sp-vote-option-label'>
               <span>{{opt.label}}</span>
               {{#if (eq this.userVote.choice.[0] opt.index)}}
@@ -103,6 +141,23 @@
         </div>
       {{/each}}
     </div>
+
+    {{#if this.proposal.safe_payload}}
+      <div class='sp-vote-safe-card'>
+        <div class='sp-vote-safe-header'>
+          {{d-icon 'file-code'}}
+          <strong>Safe Multisig Execution Payload</strong>
+          <button class='btn btn-small btn-default' {{action 'copySafePayload'}}>
+            {{#if this.copiedSafePayload}}
+              {{d-icon 'check'}} Copied
+            {{else}}
+              {{d-icon 'copy'}} Copy Payload
+            {{/if}}
+          </button>
+        </div>
+        <p class='sp-vote-safe-desc'>This proposal passed. You can import this batch execution payload directly into Safe {Wallet} App.</p>
+      </div>
+    {{/if}}
 
     <div class='sp-vote-footer'>
       <div class='sp-vote-user-status'>

@@ -97,7 +97,7 @@ import { signTypedData, getAccount, reconnect } from '@wagmi/core'
 
 export interface VotePayload {
   topicId: number
-  choice: number[]
+  choice: number[] | Record<string, number> | string
   timestamp: number
   chainId?: number
   walletConnectProjectId?: string
@@ -126,23 +126,44 @@ export async function signVotePayload(
     chainId: payload.chainId || 1,
   } as const
 
-  const types = {
-    Vote: [
-      { name: 'topicId', type: 'uint256' },
-      { name: 'choice', type: 'uint256[]' },
-      { name: 'timestamp', type: 'uint256' },
-    ],
-  } as const
+  const isArrayChoice = Array.isArray(payload.choice)
+
+  const types = isArrayChoice
+    ? ({
+        Vote: [
+          { name: 'topicId', type: 'uint256' },
+          { name: 'choice', type: 'uint256[]' },
+          { name: 'timestamp', type: 'uint256' },
+        ],
+      } as const)
+    : ({
+        Vote: [
+          { name: 'topicId', type: 'uint256' },
+          { name: 'choice', type: 'string' },
+          { name: 'timestamp', type: 'uint256' },
+        ],
+      } as const)
+
+  const message = isArrayChoice
+    ? {
+        topicId: BigInt(payload.topicId),
+        choice: (payload.choice as number[]).map((c) => BigInt(c)),
+        timestamp: BigInt(payload.timestamp),
+      }
+    : {
+        topicId: BigInt(payload.topicId),
+        choice:
+          typeof payload.choice === 'string'
+            ? payload.choice
+            : JSON.stringify(payload.choice),
+        timestamp: BigInt(payload.timestamp),
+      }
 
   const signature = await signTypedData(config, {
     domain,
     types,
     primaryType: 'Vote',
-    message: {
-      topicId: BigInt(payload.topicId),
-      choice: payload.choice.map((c) => BigInt(c)),
-      timestamp: BigInt(payload.timestamp),
-    },
+    message: message as any,
   })
 
   return {

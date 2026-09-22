@@ -6,6 +6,7 @@ class SpProposal < ActiveRecord::Base
   has_many :sp_votes, dependent: :destroy
 
   enum status: { open: 0, closed: 1 }
+  enum voting_type: { single_choice: 0, weighted: 1, quadratic: 2, approval: 3 }
 
   validates :topic_id, presence: true, uniqueness: true
   validates :title, presence: true
@@ -38,44 +39,46 @@ class SpProposal < ActiveRecord::Base
       }
     end
 
-    tally = parsed_options.each_with_index.map do |opt, idx|
-      {
-        index: idx,
-        label: opt.to_s,
-        vote_count: 0,
-        voting_power: 0.0,
-        percentage: 0.0,
-      }
-    end
+    raw_tally = DiscourseSiwe::VotingStrategy.tally(
+      parsed_options,
+      sp_votes.to_a,
+      respond_to?(:voting_type) ? (voting_type || :single_choice) : :single_choice
+    )
 
-    total_power = 0.0
-    votes = sp_votes.to_a
+    raw_tally.merge(is_shielded: false)
+  end
 
-    votes.each do |vote|
-      choices = vote.choice.is_a?(Array) ? vote.choice : [vote.choice]
-      weight = vote.voting_power.to_f
-      total_power += weight
+  def winning_option
+    res = tally_results(mask_shielded: false)
+    return nil if res[:tallies].blank?
 
-      choices.each do |c|
-        c_idx = c.to_i
-        if c_idx >= 0 && c_idx < tally.length
-          tally[c_idx][:vote_count] += 1
-          tally[c_idx][:voting_power] += weight
-        end
-      end
-    end
+    res[:tallies].max_by { |t| t[:voting_power] }
+  end
 
-    if total_power > 0
-      tally.each do |item|
-        item[:percentage] = ((item[:voting_power] / total_power) * 100.0).round(2)
-      end
-    end
+  def safe_transaction_payload
+    return nil unless respond_to?(:execution_payload) && execution_payload.present?
+    return nil if active?
+
+    winner = winning_option
+    # Passed if winning option is index 0 ("Approve" / top choice) and power > 0
+    return nil unless winner && winner[:index] == 0 && winner[:voting_power].to_f > 0
 
     {
-      is_shielded: false,
-      total_votes: votes.size,
-      total_power: total_power,
-      tallies: tally,
+      version: '1.0',
+      chainId: SiteSetting.siwe_voting_chain_id.to_s,
+      createdAt: Time.now.utc.to_i,
+      meta: {
+        name: "Execution for Proposal ##{topic_id}: #{title}",
+        description: "Passed governance vote on topic #{topic_id}",
+      },
+      transactions: [
+        {
+          to: execution_payload['to'],
+          value: execution_payload['value'] || '0',
+          data: execution_payload['data'] || '0x',
+          operation: execution_payload['operation'] || 0,
+        },
+      ],
     }
   end
 end
