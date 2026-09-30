@@ -118,6 +118,7 @@ WalletConnect / Reown project ID. Without a project ID, only injected wallets
 | **Siwe society group mapping**    | Token-gating mapping: `badge_id:group_name\|badge_id:group_name`. Example: `13:governors\|25:core-team\|28:moderators`. Leave blank to disable group sync.                                                                                                                  |
 | **Siwe voting enabled**           | Enable native token governance, EIP-712 off-chain voting, and topic vote cards.                                                                                                                                                                                             |
 | **Siwe voting chain id**          | EVM Chain ID used in EIP-712 governance signature hashing (default: `1` for Ethereum Mainnet).                                                                                                                                                                              |
+| **Siwe voting tag**               | Tag applied to topics (default: `governance`) where the governance proposal widget mounts above the posts.                                                                                                                                                                  |
 | **Siwe voting shielded default**  | Default secret-ballot setting for newly created proposals (tally hidden until vote closes).                                                                                                                                                                                 |
 
 ## Compatibility notes (Discourse + Ruby 3.4)
@@ -390,9 +391,62 @@ The plugin embeds an off-chain signaling and token-weighted voting engine native
 5. **Safe Multisig Execution Payloads:**
    Proposal creators can attach an optional execution payload (`to`, `value`, `data`, `operation`). When a proposal passes, a formatted Gnosis Safe batch transaction payload is generated, allowing DAO signers to execute on-chain outcomes directly via Safe {Wallet} App or `web3-app-contracts`.
 
-#### Creating Governance Proposals (API)
+#### How to Use Voting (Step-by-Step Guide)
 
-Staff and administrators create proposals for any Discourse topic via `POST /sp-voting/proposal`:
+##### For Community Members & Voters
+
+Participating in forum governance proposals is gasless and takes place directly inside Discourse:
+
+1. **Sign in with your Web3 Wallet:**
+   - Click the Ethereum login button and sign in using your wallet (MetaMask, WalletConnect, or Safe multisig).
+   - Your voting power is tied to your wallet's verified address.
+2. **Badge-Based Voting Power:**
+   - Voting power is derived from the official Society Protocol ERC-1155 badges you held at the proposal's frozen **Snapshot Block Height**:
+     - SP DAO (`#11`): 1 Vote
+     - Contributor (`#26`): 1 Vote
+     - Moderator (`#28`): 2 Votes
+     - Core Team (`#25`): 3 Votes
+     - Governor (`#13`): 5 Votes
+     - Security Council (`#12`): 5 Votes
+   - Because balances are queried at the historical snapshot block, badges acquired after the proposal began do not inflate voting power.
+3. **Navigate to the Governance Topic:**
+   - Open any topic tagged with `#governance` (or the configured `siwe_voting_tag`).
+   - The interactive `sp-vote-widget` appears prominently above the first post.
+4. **Inspect the Proposal Details:**
+   - Review the proposal title, active/closed badge, snapshot block height, and closing deadline.
+   - Check the **"Your Voting Power"** badge in the widget footer to verify your eligible voting power.
+5. **Select Your Vote:**
+   - **Single Choice:** Click the radio button for your preferred option.
+   - **Weighted Voting (Competitions & Grant Allocations):** Enter the percentage share you wish to allocate to each choice (e.g. 50% to Project Alpha, 30% to Project Beta, 20% to Project Gamma). The widget shows your allocated and remaining percentages in real time.
+   - **Approval Voting:** Check the box next to all acceptable candidates.
+   - **Quadratic Voting:** Distribute weights across options; effective voting power scales as $\sqrt{\text{Allocated Power}}$ to curb whale dominance.
+6. **Sign & Cast Ballot (Gasless):**
+   - Click **"Sign & Cast Vote"**.
+   - Your wallet will prompt you to sign an **EIP-712 structured typed data message** ("Society Protocol Governance").
+   - This signature is off-chain and costs **$0 in network gas fees**.
+   - Once submitted, your vote is saved and verified against your linked forum account.
+7. **Shielded Ballots & Results:**
+   - If the proposal is **Shielded**, live choice tallies and percentages remain hidden behind a "Shielded" indicator while voting is active to prevent herd behavior and social pressure.
+   - When the voting deadline expires (`ends_at`), certified vote counts, power allocations, and percentage bars unlock automatically.
+8. **Executing Passed Proposals (Safe Multisig):**
+   - If an approved proposal included an execution payload, a **Safe Multisig Execution Card** appears once closed. DAO signers can click **"Copy Payload"** and import the batch JSON payload directly into Safe {Wallet} App.
+
+---
+
+##### For Forum Administrators & Proposal Creators
+
+Staff and administrators can attach a governance vote to any discussion topic via the Discourse API or curl:
+
+1. **Ensure Settings are Configured:**
+   - Under **Admin > Plugins > Settings**:
+     - Verify **Siwe voting enabled** is checked.
+     - Note your **Siwe voting tag** (default: `governance`).
+     - Set **Siwe voting chain id** (default: `1`).
+2. **Create the Topic in Discourse:**
+   - Create a standard discussion topic detailing the proposal background, options, and rules.
+   - Add the `#governance` tag to the topic. Note the topic ID from the URL (e.g. `forum.community.com/t/community-grant-allocation/42` -> topic ID is `42`).
+3. **Initialize the Governance Proposal via API:**
+   - Send a `POST /sp-voting/proposal` request with Discourse Staff API credentials or a session cookie:
 
 ```bash
 curl -X POST https://forum.yourcommunity.com/sp-voting/proposal \
@@ -403,22 +457,35 @@ curl -X POST https://forum.yourcommunity.com/sp-voting/proposal \
     "topic_id": 42,
     "title": "Community Grant Competition #1",
     "options": ["Project Alpha", "Project Beta", "Project Gamma"],
-    "ends_at": "2026-10-01T18:00:00Z",
+    "ends_at": "2026-10-15T18:00:00Z",
     "voting_type": "weighted",
-    "shielded": true
+    "shielded": true,
+    "execution_payload": {
+      "to": "0x1234567890123456789012345678901234567890",
+      "value": "0",
+      "data": "0xa9059cbb000000000000000000000000...",
+      "operation": 0
+    }
   }'
 ```
 
-_Note: If `snapshot_block` is omitted, the plugin automatically queries Ethereum RPC and records the current block height._
+###### Proposal Parameters:
 
-#### Frontend Topic Widget
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `topic_id` | Integer | Yes | The ID of the Discourse topic where the vote card should attach. |
+| `title` | String | Optional | The proposal title. Defaults to the topic title if omitted. |
+| `options` | Array[String] | Yes | At least 2 option labels (e.g. `["Approve", "Reject", "Abstain"]`). |
+| `ends_at` | String (ISO8601) | Yes | Future expiration timestamp (e.g. `"2026-10-15T18:00:00Z"`). |
+| `voting_type` | String | Optional | Tally model: `"single_choice"` (default), `"weighted"`, `"quadratic"`, or `"approval"`. |
+| `shielded` | Boolean | Optional | When `true`, hides intermediate tallies until voting closes. Defaults to site setting `siwe_voting_shielded_default`. |
+| `snapshot_block` | Integer | Optional | Historical EVM block number to query voter badge balances. If omitted or `0`, the plugin queries Ethereum RPC and automatically locks the current block height. |
+| `strategy_rules` | Object | Optional | Custom badge ID-to-weight mapping (e.g. `{"11": 1, "13": 10}`). If omitted, default Society badge rules apply. |
+| `quorum` | Decimal | Optional | Minimum total voting power required for validity. |
+| `execution_payload` | Object | Optional | Target contract call parameters (`to`, `value`, `data`, `operation`) formatted for Safe Multisig execution upon passage. |
 
-When a Discourse topic has an associated governance proposal, the `sp-vote-widget` component mounts directly above the discussion thread (`topic-above-posts` outlet):
-
-- Displays the proposal status, snapshot block height, and active/shielded badge.
-- Provides interactive percentage input sliders for **Weighted Voting** with real-time remaining-percentage tracking.
-- Initiates wallet signature requests directly via Viem and Wagmi.
-- Displays unmasked certified results and Safe execution payloads when voting concludes.
+4. **Automatic Widget Rendering:**
+   - Once created, anyone visiting topic `#42` will immediately see the `sp-vote-widget` rendered directly above the first post.
 
 ### Backfilling existing users
 
