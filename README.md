@@ -401,14 +401,10 @@ Participating in forum governance proposals is gasless and takes place directly 
    - Click the Ethereum login button and sign in using your wallet (MetaMask, WalletConnect, or Safe multisig).
    - Your voting power is tied to your wallet's verified address.
 2. **Badge-Based Voting Power:**
-   - Voting power is derived from the official Society Protocol ERC-1155 badges you held at the proposal's frozen **Snapshot Block Height**:
-     - SP DAO (`#11`): 1 Vote
-     - Contributor (`#26`): 1 Vote
-     - Moderator (`#28`): 2 Votes
-     - Core Team (`#25`): 3 Votes
-     - Governor (`#13`): 5 Votes
-     - Security Council (`#12`): 5 Votes
-   - Because balances are queried at the historical snapshot block, badges acquired after the proposal began do not inflate voting power.
+   - Voting power is determined by the proposal's configurable **Strategy Rules** (`strategy_rules`), evaluated against badges held at the frozen **Snapshot Block Height**.
+   - There are **no mandatory predetermined weights**: the proposal creator decides exactly which badges are eligible and how many votes each holder receives.
+   - For example, a proposal can restrict voting solely to **Core Team** badge holders (`#25`) with **2 votes per member** (`"strategy_rules": { "25": 2 }`). Anyone without an eligible badge will have 0 voting power and cannot vote.
+   - Because balances are queried at the historical snapshot block, badges acquired after the proposal was initialized cannot be used to vote.
 3. **Navigate to the Governance Topic:**
    - Open any topic tagged with `#governance` (or the configured `siwe_voting_tag`).
    - The interactive `sp-vote-widget` appears prominently above the first post.
@@ -455,11 +451,14 @@ curl -X POST https://forum.yourcommunity.com/sp-voting/proposal \
   -H "Api-Username: admin_username" \
   -d '{
     "topic_id": 42,
-    "title": "Community Grant Competition #1",
-    "options": ["Project Alpha", "Project Beta", "Project Gamma"],
+    "title": "Core Team Decision #1",
+    "options": ["Option Alpha", "Option Beta", "Option Gamma", "Option Delta"],
     "ends_at": "2026-10-15T18:00:00Z",
     "voting_type": "weighted",
     "shielded": true,
+    "strategy_rules": {
+      "25": 2
+    },
     "execution_payload": {
       "to": "0x1234567890123456789012345678901234567890",
       "value": "0",
@@ -475,12 +474,12 @@ curl -X POST https://forum.yourcommunity.com/sp-voting/proposal \
 |---|---|---|---|
 | `topic_id` | Integer | Yes | The ID of the Discourse topic where the vote card should attach. |
 | `title` | String | Optional | The proposal title. Defaults to the topic title if omitted. |
-| `options` | Array[String] | Yes | At least 2 option labels (e.g. `["Approve", "Reject", "Abstain"]`). |
+| `options` | Array[String] | Yes | At least 2 option labels (e.g. `["Option A", "Option B", "Option C"]`). |
 | `ends_at` | String (ISO8601) | Yes | Future expiration timestamp (e.g. `"2026-10-15T18:00:00Z"`). |
-| `voting_type` | String | Optional | Tally model: `"single_choice"` (default), `"weighted"`, `"quadratic"`, or `"approval"`. |
+| `voting_type` | String | Optional | Tally model: `"single_choice"`, `"weighted"`, `"quadratic"`, or `"approval"`. In `"weighted"`, voters split their votes by percentage across choices (e.g. 50% to Option A and 50% to Option B). |
 | `shielded` | Boolean | Optional | When `true`, hides intermediate tallies until voting closes. Defaults to site setting `siwe_voting_shielded_default`. |
 | `snapshot_block` | Integer | Optional | Historical EVM block number to query voter badge balances. If omitted or `0`, the plugin queries Ethereum RPC and automatically locks the current block height. |
-| `strategy_rules` | Object | Optional | Custom badge ID-to-weight mapping (e.g. `{"11": 1, "13": 10}`). If omitted, default Society badge rules apply. |
+| `strategy_rules` | Object | Optional | Defines which badges are eligible and their voting power. For example, `{"25": 2}` grants holders of the Core Team badge (`#25`) exactly 2 votes each, while anyone without the badge receives 0 votes and cannot vote. |
 | `quorum` | Decimal | Optional | Minimum total voting power required for validity. |
 | `execution_payload` | Object | Optional | Target contract call parameters (`to`, `value`, `data`, `operation`) formatted for Safe Multisig execution upon passage. |
 

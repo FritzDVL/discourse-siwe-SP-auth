@@ -15,25 +15,21 @@ class VotingStrategyTest < Minitest::Test
     assert_equal 0.0, DiscourseSiwe::VotingStrategy.calculate_power('')
   end
 
-  def test_default_rules_single_badge
-    # 11 is SP DAO (weight 1)
-    assert_equal 1.0, DiscourseSiwe::VotingStrategy.calculate_power(['11'])
-    # 13 is Governor (weight 5)
-    assert_equal 5.0, DiscourseSiwe::VotingStrategy.calculate_power(['13'])
+  def test_empty_rules_returns_zero
+    # With no strategy rules defined, voting power defaults to 0.0 (no arbitrary preset weights)
+    assert_equal 0.0, DiscourseSiwe::VotingStrategy.calculate_power(['25'])
+    assert_equal 0.0, DiscourseSiwe::VotingStrategy.calculate_power(['11', '13'])
   end
 
-  def test_default_rules_multiple_badges
-    # 11 (weight 1) + 13 (weight 5) + 25 (weight 3) = 9
-    power = DiscourseSiwe::VotingStrategy.calculate_power(['11', '13', '25'])
-    assert_equal 9.0, power
-  end
+  def test_core_team_rules_two_votes
+    # Core Team badge (#25) configured with 2 votes each
+    rules = { '25' => 2 }
+    assert_equal 2.0, DiscourseSiwe::VotingStrategy.calculate_power(['25'], rules)
+    assert_equal 2.0, DiscourseSiwe::VotingStrategy.calculate_power([{ 'id' => '25', 'name' => 'Core Team' }], rules)
 
-  def test_badge_hashes_from_subgraph
-    badges = [
-      { 'id' => '11', 'name' => 'SP DAO' },
-      { 'id' => '26', 'name' => 'Contributor' } # weight 1
-    ]
-    assert_equal 2.0, DiscourseSiwe::VotingStrategy.calculate_power(badges)
+    # Other badges have 0 votes unless explicitly configured in rules
+    assert_equal 0.0, DiscourseSiwe::VotingStrategy.calculate_power(['11'], rules)
+    assert_equal 2.0, DiscourseSiwe::VotingStrategy.calculate_power(['25', '11'], rules)
   end
 
   def test_custom_strategy_rules
@@ -43,7 +39,8 @@ class VotingStrategyTest < Minitest::Test
   end
 
   def test_duplicate_badges_counted_once
-    assert_equal 1.0, DiscourseSiwe::VotingStrategy.calculate_power(['11', '11'])
+    rules = { '25' => 2 }
+    assert_equal 2.0, DiscourseSiwe::VotingStrategy.calculate_power(['25', '25'], rules)
   end
 end
 

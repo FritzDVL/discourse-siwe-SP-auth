@@ -2,14 +2,8 @@
 
 module DiscourseSiwe
   module VotingStrategy
-    DEFAULT_RULES = {
-      '11' => 1, # SP DAO
-      '12' => 5, # Security Council
-      '13' => 5, # Governor
-      '25' => 3, # Core Team
-      '26' => 1, # Contributor
-      '28' => 2, # Moderator
-    }.freeze
+    # No predetermined weights: strategy rules are defined per proposal or community configuration
+    DEFAULT_RULES = {}.freeze
 
     module_function
 
